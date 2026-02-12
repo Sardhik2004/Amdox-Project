@@ -1,99 +1,278 @@
-npm init -y
-npm install express sqlite3 jsonwebtoken bcryptjs body-parser cors
-const express=require("express")
-const sqlite3=require("sqlite3").verbose()
-const jwt=require("jsonwebtoken")
-const bcrypt=require("bcryptjs")
-const bodyParser=require("body-parser")
-const cors=require("cors")
-
-const app=express()
-app.use(bodyParser.json())
-app.use(cors())
-
-const SECRET="TASK_SECRET_KEY"
-
-const db=new sqlite3.Database("task.db")
-
-db.serialize(()=>{
-db.run("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,email TEXT UNIQUE,password TEXT,role TEXT)")
-db.run("CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,description TEXT,priority TEXT,deadline TEXT,assignedTo INTEGER,status TEXT)")
-})
-
-function auth(req,res,next){
-const token=req.headers["authorization"]
-if(!token)return res.status(403).send("No Token")
-jwt.verify(token,SECRET,(e,user)=>{
-if(e)return res.status(401).send("Invalid Token")
-req.user=user
-next()
-})
-}
-
-function roleCheck(r){
-return(req,res,next)=>{
-if(!r.includes(req.user.role))return res.status(403).send("Access Denied")
-next()
-}
-}
-
-app.post("/register",(req,res)=>{
-const {name,email,password,role}=req.body
-const hash=bcrypt.hashSync(password,8)
-db.run("INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)",[name,email,hash,role],err=>{
-if(err)return res.send("User Exists")
-res.send("Registered")
-})
-})
-
-app.post("/login",(req,res)=>{
-const {email,password}=req.body
-db.get("SELECT * FROM users WHERE email=?",[email],(e,u)=>{
-if(!u)return res.send("User Not Found")
-if(!bcrypt.compareSync(password,u.password))return res.send("Wrong Password")
-const token=jwt.sign({id:u.id,role:u.role,name:u.name},SECRET,{expiresIn:"1h"})
-res.json({token})
-})
-})
-
-app.post("/task",auth,roleCheck(["Admin","Editor"]),(req,res)=>{
-const {title,description,priority,deadline,assignedTo}=req.body
-db.run("INSERT INTO tasks(title,description,priority,deadline,assignedTo,status) VALUES(?,?,?,?,?,?)",
-[title,description,priority,deadline,assignedTo,"Pending"],
-()=>res.send("Task Assigned"))
-})
-
-app.get("/tasks",auth,(req,res)=>{
-db.all("SELECT * FROM tasks",[],(e,r)=>res.json(r))
-})
-
-app.put("/task/:id",auth,(req,res)=>{
-db.run("UPDATE tasks SET status=? WHERE id=?",[req.body.status,req.params.id],()=>res.send("Updated"))
-})
-
-app.get("/report",auth,roleCheck(["Admin"]),(req,res)=>{
-db.all("SELECT status,COUNT(*) as total FROM tasks GROUP BY status",[],(e,r)=>res.json(r))
-})
-
-app.get("/",(req,res)=>{
-res.send(`
 <!DOCTYPE html>
 <html>
-<head><title>Task Manager</title></head>
-<body>
-<h2>Task Management System</h2>
-<ul>
-<li>Task Assignment & Priority</li>
-<li>Role Based Access</li>
-<li>Deadline Tracking</li>
-<li>Notifications</li>
-<li>Progress Reports</li>
-<li>Secure Authentication</li>
-</ul>
-<p>Use Postman for API testing</p>
-</body>
-</html>
-`)
-})
 
-app.listen(3000,()=>console.log("Server running on http://localhost:3000"))
+<head>
+    <title>Task Management System</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #eef2f7;
+            margin: 0
+        }
+        
+        header {
+            background: #0f172a;
+            color: white;
+            padding: 18px;
+            text-align: center
+        }
+        
+        .container {
+            padding: 20px
+        }
+        
+        .card {
+            background: white;
+            padding: 18px;
+            margin-bottom: 18px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1)
+        }
+        
+        input,
+        select,
+        button {
+            padding: 10px;
+            margin: 6px;
+            width: 100%
+        }
+        
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer
+        }
+        
+        .hidden {
+            display: none
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse
+        }
+        
+        th,
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            text-align: center
+        }
+        
+        .section {
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            color: white
+        }
+        
+        .sec1 {
+            background: #2563eb
+        }
+        
+        .sec2 {
+            background: #16a34a
+        }
+        
+        .sec3 {
+            background: #f97316
+        }
+        
+        .sec4 {
+            background: #9333ea
+        }
+        
+        .sec5 {
+            background: #dc2626
+        }
+        
+        .sec6 {
+            background: #0f766e
+        }
+        
+        .icon {
+            font-size: 28px
+        }
+        
+        .high {
+            color: red
+        }
+        
+        .medium {
+            color: orange
+        }
+        
+        .low {
+            color: green
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h2>Task Management System</h2>
+        <p>Single Page Visual Demonstration</p>
+    </header>
+
+    <div class="container">
+
+        <div class="card" id="loginCard">
+            <h3>Login</h3>
+            <input id="loginUser" placeholder="User ID">
+            <input id="loginPass" type="password" placeholder="Passkey">
+            <button onclick="login()">Login</button>
+            <hr>
+            <h3>Create New User</h3>
+            <input id="newUser" placeholder="New User ID">
+            <input id="newPass" type="password" placeholder="New Passkey">
+            <select id="newRole">
+<option>Admin</option>
+<option>Editor</option>
+<option>Viewer</option>
+</select>
+            <button onclick="register()">Register</button>
+        </div>
+
+        <div id="mainApp" class="hidden">
+
+            <div class="section sec1">
+                <div class="icon">📌</div>
+                <h3>Task Assignment & Prioritization</h3>
+                <p>Assign tasks with priorities and deadlines for effective planning.</p>
+            </div>
+
+            <div class="section sec2">
+                <div class="icon">🛂</div>
+                <h3>Role-Based Permissions</h3>
+                <p>Admin, Editor, and Viewer roles control system access.</p>
+            </div>
+
+            <div class="section sec3">
+                <div class="icon">⏰</div>
+                <h3>Deadline Tracking & Notifications</h3>
+                <p>Visual tracking of deadlines and task status updates.</p>
+            </div>
+
+            <div class="section sec4">
+                <div class="icon">🤝</div>
+                <h3>Real-Time Collaboration</h3>
+                <p>Live task updates visible instantly to all users.</p>
+            </div>
+
+            <div class="section sec5">
+                <div class="icon">📊</div>
+                <h3>Progress Reporting</h3>
+                <p>Real-time analytics of completed and pending tasks.</p>
+            </div>
+
+            <div class="section sec6">
+                <div class="icon">🔐</div>
+                <h3>Secure Authentication & Authorization</h3>
+                <p>User ID and passkey-based secure login system.</p>
+            </div>
+
+            <div class="card" id="taskCard">
+                <h3>Assign Task</h3>
+                <input id="title" placeholder="Task Title">
+                <select id="priority">
+<option>High</option>
+<option>Medium</option>
+<option>Low</option>
+</select>
+                <input type="date" id="deadline">
+                <button onclick="addTask()">Assign Task</button>
+            </div>
+
+            <div class="card">
+                <h3>Tasks</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Priority</th>
+                            <th>Deadline</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taskTable"></tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h3>Progress Report</h3>
+                <p id="report"></p>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let users = {}
+        let currentRole = ""
+        let tasks = []
+
+        function register() {
+            let u = document.getElementById("newUser").value
+            let p = document.getElementById("newPass").value
+            let r = document.getElementById("newRole").value
+            if (!u || !p) return alert("Enter details")
+            users[u] = {
+                pass: p,
+                role: r
+            }
+            alert("User Registered")
+        }
+
+        function login() {
+            let u = document.getElementById("loginUser").value
+            let p = document.getElementById("loginPass").value
+            if (!users[u] || users[u].pass !== p) return alert("Invalid Login")
+            currentRole = users[u].role
+            document.getElementById("loginCard").classList.add("hidden")
+            document.getElementById("mainApp").classList.remove("hidden")
+            if (currentRole === "Viewer") document.getElementById("taskCard").classList.add("hidden")
+            alert("Logged in as " + currentRole)
+        }
+
+        function addTask() {
+            let t = {
+                title: document.getElementById("title").value,
+                priority: document.getElementById("priority").value,
+                deadline: document.getElementById("deadline").value,
+                status: "Pending"
+            }
+            tasks.push(t)
+            render()
+        }
+
+        function updateStatus(i) {
+            tasks[i].status = "Completed"
+            render()
+        }
+
+        function render() {
+            let table = ""
+            let completed = 0
+            tasks.forEach((t, i) => {
+                        if (t.status === "Completed") completed++
+                            table += `
+<tr>
+<td>${t.title}</td>
+<td class="${t.priority.toLowerCase()}">${t.priority}</td>
+<td>${t.deadline}</td>
+<td>${t.status}</td>
+<td>${currentRole!=="Viewer"&&t.status==="Pending"?`<button onclick="updateStatus(${i})">Complete</button>`:"-"}</td>
+</tr>`
+})
+document.getElementById("taskTable").innerHTML=table
+document.getElementById("report").innerText=`Completed: ${completed} | Pending: ${tasks.length-completed}`
+}
+    </script>
+
+</body>
+
+</html>
