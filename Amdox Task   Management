@@ -1,0 +1,99 @@
+npm init -y
+npm install express sqlite3 jsonwebtoken bcryptjs body-parser cors
+const express=require("express")
+const sqlite3=require("sqlite3").verbose()
+const jwt=require("jsonwebtoken")
+const bcrypt=require("bcryptjs")
+const bodyParser=require("body-parser")
+const cors=require("cors")
+
+const app=express()
+app.use(bodyParser.json())
+app.use(cors())
+
+const SECRET="TASK_SECRET_KEY"
+
+const db=new sqlite3.Database("task.db")
+
+db.serialize(()=>{
+db.run("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,email TEXT UNIQUE,password TEXT,role TEXT)")
+db.run("CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,description TEXT,priority TEXT,deadline TEXT,assignedTo INTEGER,status TEXT)")
+})
+
+function auth(req,res,next){
+const token=req.headers["authorization"]
+if(!token)return res.status(403).send("No Token")
+jwt.verify(token,SECRET,(e,user)=>{
+if(e)return res.status(401).send("Invalid Token")
+req.user=user
+next()
+})
+}
+
+function roleCheck(r){
+return(req,res,next)=>{
+if(!r.includes(req.user.role))return res.status(403).send("Access Denied")
+next()
+}
+}
+
+app.post("/register",(req,res)=>{
+const {name,email,password,role}=req.body
+const hash=bcrypt.hashSync(password,8)
+db.run("INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)",[name,email,hash,role],err=>{
+if(err)return res.send("User Exists")
+res.send("Registered")
+})
+})
+
+app.post("/login",(req,res)=>{
+const {email,password}=req.body
+db.get("SELECT * FROM users WHERE email=?",[email],(e,u)=>{
+if(!u)return res.send("User Not Found")
+if(!bcrypt.compareSync(password,u.password))return res.send("Wrong Password")
+const token=jwt.sign({id:u.id,role:u.role,name:u.name},SECRET,{expiresIn:"1h"})
+res.json({token})
+})
+})
+
+app.post("/task",auth,roleCheck(["Admin","Editor"]),(req,res)=>{
+const {title,description,priority,deadline,assignedTo}=req.body
+db.run("INSERT INTO tasks(title,description,priority,deadline,assignedTo,status) VALUES(?,?,?,?,?,?)",
+[title,description,priority,deadline,assignedTo,"Pending"],
+()=>res.send("Task Assigned"))
+})
+
+app.get("/tasks",auth,(req,res)=>{
+db.all("SELECT * FROM tasks",[],(e,r)=>res.json(r))
+})
+
+app.put("/task/:id",auth,(req,res)=>{
+db.run("UPDATE tasks SET status=? WHERE id=?",[req.body.status,req.params.id],()=>res.send("Updated"))
+})
+
+app.get("/report",auth,roleCheck(["Admin"]),(req,res)=>{
+db.all("SELECT status,COUNT(*) as total FROM tasks GROUP BY status",[],(e,r)=>res.json(r))
+})
+
+app.get("/",(req,res)=>{
+res.send(`
+<!DOCTYPE html>
+<html>
+<head><title>Task Manager</title></head>
+<body>
+<h2>Task Management System</h2>
+<ul>
+<li>Task Assignment & Priority</li>
+<li>Role Based Access</li>
+<li>Deadline Tracking</li>
+<li>Notifications</li>
+<li>Progress Reports</li>
+<li>Secure Authentication</li>
+</ul>
+<p>Use Postman for API testing</p>
+</body>
+</html>
+`)
+})
+
+app.listen(3000,()=>console.log("Server running on http://localhost:3000"))
